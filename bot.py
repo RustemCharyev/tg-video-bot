@@ -1,5 +1,6 @@
 import os
 import logging
+import glob
 import yt_dlp
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -23,9 +24,16 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     status_message = await update.message.reply_text("⏳ Скачиваю видео, подожди...")
     temp_base = f"video_{chat_id}"
     
+    # Очистка старых файлов с тем же base
+    for old in glob.glob(f"{temp_base}*"):
+        try:
+            os.remove(old)
+        except Exception:
+            pass
+    
     try:
         ydl_opts = {
-            # Сначала пробуем готовый mp4, потом склеиваем видео+аудио, потом любой лучший
+            # Формат: сначала готовый mp4, потом склеить видео+аудио, потом что угодно
             'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
             'outtmpl': temp_base + '.%(ext)s',
             'quiet': True,
@@ -34,8 +42,12 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             'cookies': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
             'noplaylist': True,
             'geo_bypass': True,
+            # Обход защиты YouTube от ботов через Android-клиент
             'extractor_args': {
-                'youtube': {'skip': ['hls', 'dash']}
+                'youtube': {
+                    'player_client': 'android',
+                    'skip': ['hls', 'dash']
+                }
             },
         }
         
@@ -82,12 +94,11 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         await status_message.edit_text(f"❌ Ошибка: {error_text}")
     
     finally:
-        # Удаляем все временные файлы (включая .part)
-        for ext in ['mp4', 'webm', 'mkv', 'mov', 'avi', 'part']:
-            candidate = f"{temp_base}.{ext}"
-            if os.path.exists(candidate):
+        # Удаляем все временные файлы (включая .part, .ytdl и т.д.)
+        for pattern in [f"{temp_base}.*", f"{temp_base}*.part", f"{temp_base}*.ytdl"]:
+            for f in glob.glob(pattern):
                 try:
-                    os.remove(candidate)
+                    os.remove(f)
                 except Exception:
                     pass
 
