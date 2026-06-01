@@ -12,7 +12,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("TOKEN")
-COOKIES_FILE = "cookies.txt"
+
+# Абсолютный путь к cookies.txt (рядом с bot.py)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+COOKIES_FILE = os.path.join(SCRIPT_DIR, "cookies.txt")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отправь ссылку для скачивания видео")
@@ -22,9 +25,9 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     chat_id = update.effective_chat.id
     
     status_message = await update.message.reply_text("⏳ Скачиваю видео, подожди...")
-    temp_base = f"video_{chat_id}"
+    temp_base = os.path.join(SCRIPT_DIR, f"video_{chat_id}")
     
-    # Очистка старых файлов с тем же base
+    # Чистим старые файлы
     for old in glob.glob(f"{temp_base}*"):
         try:
             os.remove(old)
@@ -33,23 +36,21 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     
     try:
         ydl_opts = {
-            # Формат: сначала готовый mp4, потом склеить видео+аудио, потом что угодно
             'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
             'outtmpl': temp_base + '.%(ext)s',
             'quiet': True,
             'no_warnings': True,
             'merge_output_format': 'mp4',
-            'cookies': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
             'noplaylist': True,
             'geo_bypass': True,
-            # Обход защиты YouTube от ботов через Android-клиент
-            'extractor_args': {
-                'youtube': {
-                    'player_client': 'android',
-                    'skip': ['hls', 'dash']
-                }
-            },
         }
+        
+        # Подключаем cookies.txt если он есть
+        if os.path.exists(COOKIES_FILE):
+            ydl_opts['cookies'] = COOKIES_FILE
+            logger.info(f"Cookies найдены: {COOKIES_FILE}")
+        else:
+            logger.warning(f"Cookies НЕ найдены по пути: {COOKIES_FILE}")
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -90,11 +91,10 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         
     except Exception as e:
         error_text = str(e)
-        logger.error(f"Ошибка при скачивании: {error_text}")
+        logger.error(f"Ошибка: {error_text}")
         await status_message.edit_text(f"❌ Ошибка: {error_text}")
     
     finally:
-        # Удаляем все временные файлы (включая .part, .ytdl и т.д.)
         for pattern in [f"{temp_base}.*", f"{temp_base}*.part", f"{temp_base}*.ytdl"]:
             for f in glob.glob(pattern):
                 try:
@@ -104,7 +104,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
 
 def main():
     if not TOKEN:
-        logger.error("TOKEN не найден в переменных окружения!")
+        logger.error("TOKEN не найден!")
         return
     
     app = Application.builder().token(TOKEN).build()
