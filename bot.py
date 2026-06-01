@@ -1,9 +1,13 @@
 import os
 import yt_dlp
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 
 TOKEN = os.environ.get("TOKEN")
+COOKIES_FILE = "cookies.txt"
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Отправь ссылку для скачивания видео")
 
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
@@ -18,6 +22,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             'outtmpl': temp_file,
             'quiet': True,
             'merge_output_format': 'mp4',
+            'cookiefile': COOKIES_FILE,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -47,6 +52,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
 
 def main():
     application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), download_and_send_video))
     print("Бот запущен!")
     application.run_polling()
