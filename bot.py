@@ -18,10 +18,9 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     
     try:
         ydl_opts = {
-            'format': 'best/bestvideo+bestaudio',
+            'format': 'worst/best',
             'outtmpl': temp_file + '.%(ext)s',
             'quiet': True,
-            'merge_output_format': 'mp4',
             'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
             'socket_timeout': 30,
             'retries': 3,
