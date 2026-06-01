@@ -18,24 +18,36 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     
     try:
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4][filesize<45M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<45M]/best',
+            'format': 'best[filesize<45M]/bestvideo[filesize<45M]+bestaudio/best',
             'outtmpl': temp_file,
             'quiet': True,
             'merge_output_format': 'mp4',
             'cookiefile': COOKIES_FILE,
+            'noplaylist': True,
+            'extractor_args': {
+                'youtube': {'skip': ['hls', 'dash']},
+            },
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             title = info.get('title', 'Видео')
         
-        file_size = os.path.getsize(temp_file)
+        # Найти реальный скачанный файл (расширение может отличаться)
+        actual_file = temp_file
+        for ext in ['mp4', 'webm', 'mkv', 'mov', 'avi']:
+            candidate = f"video_{chat_id}.{ext}"
+            if os.path.exists(candidate):
+                actual_file = candidate
+                break
+        
+        file_size = os.path.getsize(actual_file)
         if file_size > 50 * 1024 * 1024:
             await status_message.edit_text("❌ Видео слишком большое (>50 МБ).")
-            os.remove(temp_file)
+            os.remove(actual_file)
             return
         
         await status_message.edit_text("📤 Отправляю видео...")
-        with open(temp_file, 'rb') as video:
+        with open(actual_file, 'rb') as video:
             await context.bot.send_video(
                 chat_id=chat_id,
                 video=video,
@@ -47,8 +59,10 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         await status_message.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
+        for ext in ['mp4', 'webm', 'mkv', 'mov', 'avi']:
+            candidate = f"video_{chat_id}.{ext}"
+            if os.path.exists(candidate):
+                os.remove(candidate)
 
 def main():
     application = Application.builder().token(TOKEN).build()
