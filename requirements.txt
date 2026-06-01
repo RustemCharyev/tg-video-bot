@@ -1,2 +1,2 @@
 python-telegram-bot
-yt-dlp>=2025.05.29
+yt-dlp
