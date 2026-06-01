@@ -12,8 +12,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("TOKEN")
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-COOKIES_PATH = os.path.join(SCRIPT_DIR, "cookies.txt")
+COOKIES_PATH = os.path.join(os.getcwd(), "cookies.txt")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отправь ссылку для скачивания видео")
@@ -23,7 +22,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     chat_id = update.effective_chat.id
     
     status_message = await update.message.reply_text("⏳ Скачиваю видео, подожди...")
-    temp_base = os.path.join(SCRIPT_DIR, f"video_{chat_id}")
+    temp_base = os.path.join(os.getcwd(), f"video_{chat_id}")
     
     # Чистим старые файлы
     for old in glob.glob(f"{temp_base}*"):
@@ -33,28 +32,20 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             pass
     
     has_cookies = os.path.exists(COOKIES_PATH)
-    logger.info(f"Cookies найден: {has_cookies}, путь: {COOKIES_PATH}")
+    logger.info(f"Cookies: {has_cookies} | {COOKIES_PATH}")
     
     try:
         ydl_opts = {
-            # ПРОСТО best — yt-dlp сам выберет лучший доступный формат
             'format': 'best',
             'outtmpl': temp_base + '.%(ext)s',
             'quiet': True,
-            'no_warnings': True,
-            'noplaylist': True,
-            'geo_bypass': True,
+            'cookiefile': COOKIES_PATH if has_cookies else None,
         }
         
-        # Подключаем cookies если есть
-        if has_cookies:
-            ydl_opts['cookiefile'] = COOKIES_PATH
-        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get('title', 'Видео') if info else 'Видео'
+            ydl.download([url])
         
-        # Ищем скачанный файл
+        # Ищем файл
         actual_file = None
         for ext in ['mp4', 'webm', 'mkv', 'mov', 'avi']:
             candidate = f"{temp_base}.{ext}"
@@ -63,22 +54,22 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 break
         
         if not actual_file:
-            await status_message.edit_text("❌ Не удалось найти скачанный файл.")
+            await status_message.edit_text("❌ Файл не найден.")
             return
         
         file_size = os.path.getsize(actual_file)
         if file_size > 50 * 1024 * 1024:
-            await status_message.edit_text("❌ Видео слишком большое (>50 МБ).")
+            await status_message.edit_text("❌ >50 МБ.")
             os.remove(actual_file)
             return
         
-        await status_message.edit_text("📤 Отправляю видео...")
+        await status_message.edit_text("📤 Отправляю...")
         
         with open(actual_file, 'rb') as video_file:
             await context.bot.send_video(
                 chat_id=chat_id,
                 video=video_file,
-                caption=f"🎬 {title}",
+                caption="🎬 Видео",
                 supports_streaming=True
             )
         
@@ -93,7 +84,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         await status_message.edit_text(f"❌ Ошибка: {error_text}")
     
     finally:
-        for pattern in [f"{temp_base}.*", f"{temp_base}*.part", f"{temp_base}*.ytdl"]:
+        for pattern in [f"{temp_base}.*", f"{temp_base}*.part"]:
             for f in glob.glob(pattern):
                 try:
                     os.remove(f)
@@ -108,8 +99,6 @@ def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
-    
-    logger.info("Бот запущен!")
     app.run_polling()
 
 if __name__ == "__main__":
