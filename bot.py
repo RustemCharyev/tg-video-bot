@@ -1,105 +1,73 @@
 import os
-import logging
-import glob
 import yt_dlp
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 
 TOKEN = os.environ.get("TOKEN")
-COOKIES_PATH = os.path.join(os.getcwd(), "cookies.txt")
+COOKIES_FILE = "cookies.txt"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отправь ссылку для скачивания видео")
 
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text.strip()
+    url = update.message.text
     chat_id = update.effective_chat.id
     
     status_message = await update.message.reply_text("⏳ Скачиваю видео, подожди...")
-    temp_base = os.path.join(os.getcwd(), f"video_{chat_id}")
-    
-    # Чистим старые файлы
-    for old in glob.glob(f"{temp_base}*"):
-        try:
-            os.remove(old)
-        except Exception:
-            pass
-    
-    has_cookies = os.path.exists(COOKIES_PATH)
-    logger.info(f"Cookies: {has_cookies} | {COOKIES_PATH}")
+    temp_file = f"video_{chat_id}"
     
     try:
         ydl_opts = {
-            'format': 'best',
-            'outtmpl': temp_base + '.%(ext)s',
+            'format': 'best/bestvideo+bestaudio',
+            'outtmpl': temp_file + '.%(ext)s',
             'quiet': True,
-            'cookiefile': COOKIES_PATH if has_cookies else None,
+            'merge_output_format': 'mp4',
+            'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+            'socket_timeout': 30,
+            'retries': 3,
         }
-        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+            info = ydl.extract_info(url, download=True)
+            title = info.get('title', 'Видео')
+            ext = info.get('ext', 'mp4')
         
-        # Ищем файл
-        actual_file = None
-        for ext in ['mp4', 'webm', 'mkv', 'mov', 'avi']:
-            candidate = f"{temp_base}.{ext}"
-            if os.path.exists(candidate):
-                actual_file = candidate
-                break
-        
-        if not actual_file:
-            await status_message.edit_text("❌ Файл не найден.")
-            return
+        actual_file = temp_file + '.' + ext
+        if not os.path.exists(actual_file):
+            for e in ['mp4', 'webm', 'mkv', 'mov']:
+                if os.path.exists(temp_file + '.' + e):
+                    actual_file = temp_file + '.' + e
+                    break
         
         file_size = os.path.getsize(actual_file)
         if file_size > 50 * 1024 * 1024:
-            await status_message.edit_text("❌ >50 МБ.")
+            await status_message.edit_text("❌ Видео слишком большое (>50 МБ).")
             os.remove(actual_file)
             return
         
-        await status_message.edit_text("📤 Отправляю...")
-        
-        with open(actual_file, 'rb') as video_file:
+        await status_message.edit_text("📤 Отправляю видео...")
+        with open(actual_file, 'rb') as video:
             await context.bot.send_video(
                 chat_id=chat_id,
-                video=video_file,
-                caption="🎬 Видео",
+                video=video,
+                caption=f"🎬 {title}",
                 supports_streaming=True
             )
-        
-        try:
-            await status_message.delete()
-        except Exception:
-            pass
+        await status_message.delete()
         
     except Exception as e:
-        error_text = str(e)
-        logger.error(f"Ошибка: {error_text}")
-        await status_message.edit_text(f"❌ Ошибка: {error_text}")
-    
+        await status_message.edit_text(f"❌ Ошибка: {str(e)}")
     finally:
-        for pattern in [f"{temp_base}.*", f"{temp_base}*.part"]:
-            for f in glob.glob(pattern):
-                try:
-                    os.remove(f)
-                except Exception:
-                    pass
+        for e in ['mp4', 'webm', 'mkv', 'mov']:
+            f = temp_file + '.' + e
+            if os.path.exists(f):
+                os.remove(f)
 
 def main():
-    if not TOKEN:
-        logger.error("TOKEN не найден!")
-        return
-    
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send_video))
-    app.run_polling()
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), download_and_send_video))
+    print("Бот запущен!")
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
