@@ -42,7 +42,7 @@ async def download_and_send_video(message: types.Message):
     cookie_arg = {"cookiefile": cookie_files[0]} if cookie_files else {}
 
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        'format': 'best[ext=mp4][height<=720]/best[ext=mp4]/best',
         'outtmpl': output_template,
         'merge_output_format': 'mp4',
         'quiet': True,
@@ -62,6 +62,25 @@ async def download_and_send_video(message: types.Message):
         if not os.path.exists(filepath):
             base, _ = os.path.splitext(filepath)
             filepath = base + ".mp4"
+
+        # Перекодируем для корректного отображения на iPhone в Telegram
+        fixed = filepath.replace(".mp4", "_fixed.mp4")
+        fix_cmd = [
+            "ffmpeg", "-y", "-i", filepath,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-movflags", "+faststart",
+            fixed
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *fix_cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        await proc.communicate()
+
+        if os.path.exists(fixed):
+            os.remove(filepath)
+            filepath = fixed
 
         await status.edit_text("🚀 Отправляю...")
         await message.reply_video(video=FSInputFile(filepath), caption="Готово! 🎬")
