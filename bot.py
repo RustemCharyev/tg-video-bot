@@ -2,9 +2,6 @@ import os
 import glob
 import asyncio
 import logging
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import FSInputFile
 import yt_dlp
@@ -15,23 +12,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8734624148:AAF3x5Z3pbPNYp-ZECK0zU2DkGCY
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    polling_task = asyncio.create_task(dp.start_polling(bot, allowed_updates=["message"]))
-    print("✅ Polling запущен!")
-    yield
-    polling_task.cancel()
-    try:
-        await polling_task
-    except asyncio.CancelledError:
-        pass
-
-app = FastAPI(lifespan=lifespan)
-
-@app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    return "<h1>✅ VideoSaver Bot — Running</h1>"
 
 @dp.message()
 async def download_and_send_video(message: types.Message):
@@ -45,7 +25,7 @@ async def download_and_send_video(message: types.Message):
     os.makedirs("downloads", exist_ok=True)
     output_template = f"downloads/{message.from_user.id}_%(id)s.%(ext)s"
 
-    cookie_files = glob.glob("/app/*cookies*.txt")
+    cookie_files = glob.glob("*cookies*.txt")
     cookie_arg = {"cookiefile": cookie_files[0]} if cookie_files else {}
 
     ydl_opts = {
@@ -86,3 +66,10 @@ async def download_and_send_video(message: types.Message):
                 os.remove(f)
             except:
                 pass
+
+async def main():
+    print("✅ Бот запущен!")
+    await dp.start_polling(bot, allowed_updates=["message"])
+
+if __name__ == "__main__":
+    asyncio.run(main())
