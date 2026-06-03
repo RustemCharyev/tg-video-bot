@@ -1,72 +1,88 @@
 import os
+import glob
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import FSInputFile
 import yt_dlp
-from telegram import Update
-from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 
-TOKEN = os.environ.get("TOKEN")
-COOKIES_FILE = "cookies.txt"
+logging.basicConfig(level=logging.INFO)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отправь ссылку для скачивания видео")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8734624148:AAF3x5Z3pbPNYp-ZECK0zU2DkGCYVXqnFb0")
 
-async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text
-    chat_id = update.effective_chat.id
-    
-    status_message = await update.message.reply_text("⏳ Скачиваю видео, подожди...")
-    temp_file = f"video_{chat_id}"
-    
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    polling_task = asyncio.create_task(dp.start_polling(bot, allowed_updates=["message"]))
+    print("✅ Polling запущен!")
+    yield
+    polling_task.cancel()
     try:
-        ydl_opts = {
-            'format': 'worst/best',
-            'outtmpl': temp_file + '.%(ext)s',
-            'quiet': True,
-            'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
-            'socket_timeout': 30,
-            'retries': 3,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get('title', 'Видео')
-            ext = info.get('ext', 'mp4')
-        
-        actual_file = temp_file + '.' + ext
-        if not os.path.exists(actual_file):
-            for e in ['mp4', 'webm', 'mkv', 'mov']:
-                if os.path.exists(temp_file + '.' + e):
-                    actual_file = temp_file + '.' + e
-                    break
-        
-        file_size = os.path.getsize(actual_file)
-        if file_size > 50 * 1024 * 1024:
-            await status_message.edit_text("❌ Видео слишком большое (>50 МБ).")
-            os.remove(actual_file)
-            return
-        
-        await status_message.edit_text("📤 Отправляю видео...")
-        with open(actual_file, 'rb') as video:
-            await context.bot.send_video(
-                chat_id=chat_id,
-                video=video,
-                caption=f"🎬 {title}",
-                supports_streaming=True
-            )
-        await status_message.delete()
-        
+        await polling_task
+    except asyncio.CancelledError:
+        pass
+
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard():
+    return "<h1>✅ VideoSaver Bot — Running</h1>"
+
+@dp.message()
+async def download_and_send_video(message: types.Message):
+    url = message.text
+    if not url or not url.startswith(("http://", "https://")):
+        await message.answer("Отправь ссылку на видео (YouTube, TikTok, Instagram, VK...)")
+        return
+
+    status = await message.answer("⏳ Скачиваю...")
+
+    os.makedirs("downloads", exist_ok=True)
+    output_template = f"downloads/{message.from_user.id}_%(id)s.%(ext)s"
+
+    cookie_files = glob.glob("/app/*cookies*.txt")
+    cookie_arg = {"cookiefile": cookie_files[0]} if cookie_files else {}
+
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': output_template,
+        'merge_output_format': 'mp4',
+        'quiet': True,
+        'no_warnings': True,
+        **cookie_arg,
+    }
+
+    try:
+        loop = asyncio.get_event_loop()
+        def download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info)
+
+        filepath = await loop.run_in_executor(None, download)
+
+        if not os.path.exists(filepath):
+            base, _ = os.path.splitext(filepath)
+            filepath = base + ".mp4"
+
+        await status.edit_text("🚀 Отправляю...")
+        await message.reply_video(
+            video=FSInputFile(filepath),
+            caption="Готово! 🎬"
+        )
+        await status.delete()
+
     except Exception as e:
-        await status_message.edit_text(f"❌ Ошибка: {str(e)}")
+        await status.edit_text(f"❌ Ошибка: `{str(e)[:300]}`", parse_mode="Markdown")
+
     finally:
-        for e in ['mp4', 'webm', 'mkv', 'mov']:
-            f = temp_file + '.' + e
-            if os.path.exists(f):
+        for f in glob.glob(f"downloads/{message.from_user.id}_*"):
+            try:
                 os.remove(f)
-
-def main():
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), download_and_send_video))
-    print("Бот запущен!")
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+            except:
+                pass
