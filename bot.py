@@ -2,6 +2,8 @@ import os
 import glob
 import asyncio
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import FSInputFile
 import yt_dlp
@@ -13,6 +15,18 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "8734624148:AAF3x5Z3pbPNYp-ZECK0zU2DkGCY
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, *args):
+        pass
+
+def run_server():
+    port = int(os.environ.get("PORT", 10000))
+    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+
 @dp.message()
 async def download_and_send_video(message: types.Message):
     url = message.text
@@ -21,7 +35,6 @@ async def download_and_send_video(message: types.Message):
         return
 
     status = await message.answer("⏳ Скачиваю...")
-
     os.makedirs("downloads", exist_ok=True)
     output_template = f"downloads/{message.from_user.id}_%(id)s.%(ext)s"
 
@@ -51,10 +64,7 @@ async def download_and_send_video(message: types.Message):
             filepath = base + ".mp4"
 
         await status.edit_text("🚀 Отправляю...")
-        await message.reply_video(
-            video=FSInputFile(filepath),
-            caption="Готово! 🎬"
-        )
+        await message.reply_video(video=FSInputFile(filepath), caption="Готово! 🎬")
         await status.delete()
 
     except Exception as e:
@@ -68,6 +78,7 @@ async def download_and_send_video(message: types.Message):
                 pass
 
 async def main():
+    threading.Thread(target=run_server, daemon=True).start()
     print("✅ Бот запущен!")
     await dp.start_polling(bot, allowed_updates=["message"])
 
