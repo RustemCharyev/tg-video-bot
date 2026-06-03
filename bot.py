@@ -29,7 +29,7 @@ async def download_and_send_video(message: types.Message):
     cookie_arg = {"cookiefile": cookie_files[0]} if cookie_files else {}
 
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'best[ext=mp4]/best',
         'outtmpl': output_template,
         'merge_output_format': 'mp4',
         'quiet': True,
